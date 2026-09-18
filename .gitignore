@@ -39,3 +39,6 @@ out/
 ### Set ###
 .env
 application-local.yml
+
+### AI ###
+CLAUDE.md

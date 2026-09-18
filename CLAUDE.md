@@ -86,3 +86,12 @@ Data flow convention (see `features/example/`): `api.ts` calls the backend via t
 Path alias `@` → `frontend/src` (configured in both `vite.config.ts` and `tsconfig.app.json`).
 
 The `VITE_API_BASE_URL` env var points the frontend at the backend API (see `.env.development` / `.env.example`); it currently targets `http://localhost:4000/api`, so if the backend is run with default Spring settings the two must be reconciled (port and `/api` base path).
+
+## Commit conventions
+
+Commit messages follow `<type>: <설명>`, with the description written in Korean, imperative style (e.g. `수정`, `추가`, not `수정함`). See README.md's "커밋 컨벤션" section for the full type table and examples. Summary:
+
+- `type` is one of: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.
+- Subject line stays under ~50 characters, no trailing period.
+- One commit = one logical change; don't mix unrelated formatting into a feature/fix commit.
+- A change spanning `backend/` and `frontend/` is still one commit if it's one logical unit of work; split into separate commits when the work is unrelated.
