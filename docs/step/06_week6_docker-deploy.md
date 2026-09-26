@@ -1,7 +1,8 @@
 # 6주차 · Docker 1차 배포 (11/2~8 · 12h)
 
 > 지금까지 만든 백엔드·프런트·MySQL을 컨테이너로 묶어 클라우드 VM에 올리고, 외부 주소에서 스모크 테스트를 통과시킨다.
-> 폴더 가정: 저장소 루트에 `backend/`(Spring), `frontend/`(Vite), `docs/sql/schema.sql`이 있다. 다르면 경로만 바꾼다.
+> 폴더 가정: 저장소 루트에 `backend/`(Spring), `frontend/`(Vite + **pnpm**), `docs/sql/schema.sql`이 있다.
+> 📌 루트의 `docker-compose.yml`은 **로컬 개발용 MySQL만** 띄운다(`fullstack-mysql`, 3307 → 3306, DB `fullstack`). 이 파일은 그대로 두고, 운영용 전체 구성은 **`docker-compose.prod.yml`**로 따로 만든다. 환경변수 이름(`MYSQL_ROOT_PASSWORD`, `MYSQL_USER`, `MYSQL_PASSWORD`)과 DB 이름(`fullstack`)은 개발용과 똑같이 맞춘다.
 > ⛔ 이번 주 AI 질문에는 `.env`, DB 비밀번호, `JWT_SECRET`, 서버 IP·접속 키를 **절대** 붙여넣지 않는다(`***`로 가리기).
 
 ---
@@ -12,14 +13,14 @@
             인터넷 (http://서버IP  또는 https://도메인)
                          │ :80 / :443
                          ▼
- ┌──────────────── docker compose (한 VM) ─────────────────┐
+ ┌──────── docker compose -f docker-compose.prod.yml ──────┐
  │  frontend (Nginx)                                        │
  │   ├ /           → React 빌드 결과(index.html, js, css)   │
  │   └ /api/**     → proxy_pass http://backend:8080         │
  │                         │                                │
  │  backend (Spring Boot, JRE 21)  ── profile: prod         │
  │   ├ /app/uploads  ◀── volume: uploads                    │
- │   └ jdbc:mysql://mysql:3306/board                        │
+ │   └ jdbc:mysql://mysql:3306/fullstack                    │
  │                         │                                │
  │  mysql 8.4                                               │
  │   ├ /var/lib/mysql ◀── volume: db-data                   │
@@ -38,7 +39,7 @@
 | 3 | 백엔드 Dockerfile | `backend/Dockerfile`, `.dockerignore` | 이미지 빌드 |
 | 4 | Nginx 설정 | `frontend/nginx.conf` | 문법 OK |
 | 5 | 프런트 Dockerfile | `frontend/Dockerfile`, `.dockerignore` | 이미지 빌드 |
-| 6 | compose · 환경변수 | `docker-compose.yml`, `.env.example` | 로컬 `docker compose up` 전체 동작 |
+| 6 | compose · 환경변수 | `docker-compose.prod.yml`, `.env.example` | 로컬에서 운영 구성 전체 동작 |
 | 7 | 로컬 스모크 테스트 | `scripts/smoke.sh` | 전 항목 통과 |
 | 8 | 클라우드 VM 준비 | 서버 | Docker 설치, 방화벽 |
 | 9 | 배포 · 재배포 스크립트 | `scripts/deploy.sh` | 외부 접속 |
@@ -58,7 +59,7 @@
 ```yaml
 spring:
   datasource:
-    url: jdbc:mysql://${DB_HOST:mysql}:3306/${DB_NAME:board}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    url: jdbc:mysql://${DB_HOST:mysql}:3306/${DB_NAME:fullstack}?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
     username: ${DB_USER}
     password: ${DB_PASSWORD}
   jpa:
@@ -95,14 +96,15 @@ logging:
 ```
 
 **🔍 원리**
-- 스프링은 `application.yml`을 먼저 읽고, `SPRING_PROFILES_ACTIVE=prod`면 `application-prod.yml`로 **덮어쓴다**. 공통 값은 기본 파일에, 운영 전용 값만 prod에 둔다.
+- 스프링은 `application.yml`을 먼저 읽고, `SPRING_PROFILES_ACTIVE=prod`면 `application-prod.yml`로 **덮어쓴다**. 공통 값은 기본 파일에, 운영 전용 값만 prod에 둔다. `application.yml`의 `spring.profiles.active: local`보다 **환경변수가 우선**하므로 컨테이너에서는 `local`(localhost:3307)이 켜지지 않는다.
+- `application.properties`(3306을 가리키는 옛 기본 설정)는 쓰이지 않는다. 헷갈리지 않게 이번에 지우는 것을 권한다.
 - **`ddl-auto: validate`는 1주차부터 이미 그대로**다. 운영에서 `update`가 스키마를 멋대로 바꾸는 사고를 이 프로젝트는 원천적으로 피해 왔다.
 - `show-sql: false`: SQL 로그가 운영 로그를 뒤덮고, 파라미터가 찍히면 개인정보 노출이 된다.
 - `open-in-view: false`: 요청이 끝날 때까지 DB 커넥션을 붙잡지 않는다. 지금까지 모든 응답을 **Service 안에서 DTO로 변환**했기 때문에 끄더라도 LAZY 에러가 나지 않는다(1주차 DTO 원칙의 보상).
 - `${DB_HOST:mysql}`: 환경변수가 없으면 `mysql`. compose에서 **서비스 이름이 곧 호스트명**이다.
 - 비밀값(`DB_PASSWORD`, `JWT_SECRET`)은 파일에 값을 쓰지 않는다. 6번 `.env`에서 주입한다.
 
-**✔ 확인**: 로컬 MySQL로 `DB_HOST=localhost DB_USER=root DB_PASSWORD=*** JWT_SECRET=*** SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun` → 기동.
+**✔ 확인**: 로컬 MySQL(3307)로 기동해 본다. prod 설정은 포트가 3306 고정이므로 잠깐 `url`을 3307로 바꾸거나 `DB_HOST=localhost`와 함께 포트도 변수로 빼서 `DB_USER=*** DB_PASSWORD=*** JWT_SECRET=*** SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun` → 기동.
 
 ---
 
@@ -110,11 +112,9 @@ logging:
 
 **🎯 목표**: "서버가 살아 있고 DB에 붙어 있는가"를 한 URL로 확인한다.
 
-**📄 파일**: `backend/build.gradle`, `SecurityConfig`(3주차에 `/actuator/health` permitAll 이미 있음)
+**📄 파일**: `backend/build.gradle`(Actuator 이미 포함), `SecurityConfig`(3주차에 `/actuator/health` permitAll 이미 있음)
 
-```groovy
-implementation 'org.springframework.boot:spring-boot-starter-actuator'
-```
+`spring-boot-starter-actuator`는 프로젝트 생성 때부터 들어 있다. 추가 설치 없이 1번의 `management` 설정만 확인한다.
 
 **🔍 원리**
 - `/actuator/health`는 앱 상태와 **DB 연결 상태**까지 확인해 `{"status":"UP"}`을 준다. compose의 healthcheck, 배포 스크립트, 스모크 테스트가 모두 이 URL을 본다.
@@ -174,7 +174,7 @@ uploads
 - `USER app`: 컨테이너 안에서도 **root로 실행하지 않는다**. 앱이 뚫려도 권한이 제한된다. 업로드 폴더 소유자를 `app`으로 맞춰야 쓰기가 된다.
 - `MaxRAMPercentage=75`: 컨테이너 메모리 제한의 75%까지 힙으로 쓴다. 작은 VM에서 OOM으로 죽는 걸 줄인다.
 
-**✔ 확인**: `docker build -t board-backend ./backend` 성공, `docker images`에서 크기가 JDK 이미지보다 훨씬 작은지.
+**✔ 확인**: `docker build -t fullstack-backend ./backend` 성공, `docker images`에서 크기가 JDK 이미지보다 훨씬 작은지.
 
 ---
 
@@ -232,14 +232,14 @@ server {
 ```
 
 **🔍 원리**
-- **SPA 새로고침 404**: `/posts/3`은 React Router가 만든 **가짜 경로**라 서버에 그런 파일이 없다. `try_files ... /index.html`이 "파일이 없으면 index.html을 주라"고 해서 React가 경로를 다시 해석한다. 이 줄이 없으면 상세에서 새로고침할 때 404가 난다.
+- **SPA 새로고침 404**: `/posts/3`, `/mypage?tab=posts`는 React Router가 만든 **가짜 경로**라 서버에 그런 파일이 없다. `try_files ... /index.html`이 "파일이 없으면 index.html을 주라"고 해서 React가 경로를 다시 해석한다. 이 줄이 없으면 상세에서 새로고침할 때 404가 난다.
 - **`client_max_body_size`**: Nginx 기본값이 **1MB**다. 5주차에 10MB를 허용해도 여기서 413으로 막힌다. 업로드 용량 제한 세 군데(Spring·Nginx·프런트) 중 두 번째.
 - `proxy_pass http://backend:8080;` 뒤에 `/`를 붙이지 않았다. 붙이면 `/api/` 부분이 잘려서 백엔드가 `/posts`를 받는다. 지금 백엔드 URL은 `/api/...`로 시작하므로 **그대로 넘긴다**.
 - `X-Forwarded-*`: 백엔드가 진짜 클라이언트 IP와 https 여부를 알 수 있게 한다(로그, 11번 HTTPS).
 - 캐시 전략: Vite 빌드 파일은 `index-3f9a2c.js`처럼 **내용이 바뀌면 이름도 바뀐다** → 1년 캐시해도 안전. `index.html`은 `no-cache`로 매번 확인 → 배포하면 바로 새 js를 가리킨다.
 - 보안 헤더: `X-Frame-Options DENY`는 다른 사이트가 우리 페이지를 iframe으로 감싸 클릭을 유도하는 공격(클릭재킹)을 막는다.
 
-**✔ 확인**: 5번 이미지 빌드 후 `docker run --rm board-frontend nginx -t` → `syntax is ok`. (backend 호스트가 없어 경고가 나면 compose에서 확인)
+**✔ 확인**: 5번 이미지 빌드 후 `docker run --rm fullstack-frontend nginx -t` → `syntax is ok`. (backend 호스트가 없어 경고가 나면 compose에서 확인)
 
 ---
 
@@ -251,10 +251,11 @@ server {
 # ---------- 1단계: 빌드 ----------
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+RUN corepack enable                       # pnpm 사용 (package.json의 packageManager 버전을 따름)
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY . .
-RUN npm run build          # .env.production의 VITE_API_URL=/api가 번들에 들어감
+RUN pnpm build                            # tsc -b && vite build → dist/
 
 # ---------- 2단계: 서빙 ----------
 FROM nginx:1.27-alpine
@@ -267,17 +268,23 @@ EXPOSE 80
 # frontend/.dockerignore
 node_modules
 dist
-.env.local
 coverage
+playwright-report
+test-results
+e2e
+.env
+.env.*
 ```
 
 **🔍 원리**
 - 최종 이미지에는 Node도 소스도 없다. **빌드된 정적 파일 + Nginx**뿐이다. React 앱은 결국 html·js·css 파일이다.
-- `npm ci`: `package-lock.json`을 **그대로** 설치한다(`npm install`은 lock을 갱신할 수 있음). 누가 빌드해도 같은 버전.
-- `VITE_` 환경변수는 **빌드할 때 번들에 박힌다**(런타임이 아님). 그래서 운영 주소를 바꾸려면 다시 빌드해야 한다. 우리는 `/api` 상대 경로라서 서버 주소가 바뀌어도 다시 빌드할 필요가 없다 — 2주차에 상대 경로로 둔 이유.
-- `.env.local`을 제외: 개인 설정이나 비밀이 이미지에 들어가지 않게.
+- `pnpm install --frozen-lockfile`: `pnpm-lock.yaml`을 **그대로** 설치하고, lock과 `package.json`이 어긋나면 실패한다. 누가 빌드해도 같은 버전. `corepack enable`은 Node에 들어 있는 pnpm 실행기를 켜고, `package.json`의 `packageManager` 필드에 적힌 버전을 쓴다. **지금 `package.json`에는 이 필드가 없으므로** 로컬 `frontend/`에서 `corepack use pnpm@$(pnpm -v)`를 한 번 실행해 필드를 추가하고 커밋하자(내 PC와 이미지의 pnpm 버전이 같아진다).
+- `pnpm build`는 `tsc -b`(타입 검사)부터 하므로 **타입 에러가 있으면 이미지가 만들어지지 않는다**. 배포 전 마지막 안전장치다.
+- `VITE_` 환경변수는 **빌드할 때 번들에 박힌다**(런타임이 아님). 우리는 `.env*`를 이미지에서 전부 빼서 `VITE_API_BASE_URL`이 없게 만들고, `lib/api-client.ts`의 기본값 **`'/api'`**를 쓴다. 상대 경로라 서버 주소가 바뀌어도 다시 빌드할 필요가 없다 — 2주차에 상대 경로로 둔 이유.
+- `.env*`를 제외하는 또 다른 이유: `frontend/.env`처럼 개인 PC 설정 파일이 섞여 들어가 운영 번들에 엉뚱한 주소가 박히는 사고를 막는다. (`.gitignore`도 `.env.*`를 제외하므로 서버에서 `git clone`하면 어차피 없다)
+- e2e·테스트 결과 폴더는 빌드에 필요 없으므로 제외해 빌드 컨텍스트를 줄인다.
 
-**✔ 확인**: `docker build -t board-frontend ./frontend` 성공.
+**✔ 확인**: `docker build -t fullstack-frontend ./frontend` 성공.
 
 ---
 
@@ -285,23 +292,23 @@ coverage
 
 **🎯 목표**: 세 컨테이너를 한 번에 띄우고, 데이터(DB·업로드)를 볼륨에 남기며, 비밀값을 `.env`로 주입한다.
 
-**📄 파일**: 루트 `docker-compose.yml`, `.env.example`, `.env`(Git 제외), `.gitignore`
+**📄 파일**: 루트 `docker-compose.prod.yml`(새로), `.env.example`, `.env`(Git 제외), `.gitignore`
 
 ```yaml
-# docker-compose.yml
+# docker-compose.prod.yml — 개발용 docker-compose.yml과 별개
 services:
   mysql:
     image: mysql:8.4
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: board
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: fullstack
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       TZ: Asia/Seoul
     command:
       - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_0900_ai_ci
+      - --collation-server=utf8mb4_unicode_ci   # 개발용 compose와 같게
     volumes:
       - db-data:/var/lib/mysql
       - ./docs/sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
@@ -314,7 +321,7 @@ services:
 
   backend:
     build: ./backend
-    image: board-backend
+    image: fullstack-backend
     restart: unless-stopped
     depends_on:
       mysql:
@@ -322,9 +329,9 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: prod
       DB_HOST: mysql
-      DB_NAME: board
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: fullstack
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       TZ: Asia/Seoul
@@ -339,7 +346,7 @@ services:
 
   frontend:
     build: ./frontend
-    image: board-frontend
+    image: fullstack-frontend
     restart: unless-stopped
     depends_on:
       backend:
@@ -353,18 +360,25 @@ volumes:
 ```
 
 ```bash
-# .env.example  (Git에 올림 — 값은 비워 둠)
+# .env.example  (Git에 올림 — 값은 비워 둠. 개발용 compose와 같은 이름)
 MYSQL_ROOT_PASSWORD=
-DB_USER=board
-DB_PASSWORD=
+MYSQL_USER=fullstack
+MYSQL_PASSWORD=
 JWT_SECRET=
 COOKIE_SECURE=false
 
-# .env  (Git에 올리지 않음 — .gitignore에 .env 추가)
+# .env  (Git에 올리지 않음 — 루트 .gitignore에 .env가 있는지 확인)
 # 각 값은 openssl rand -base64 32 로 생성
 ```
 
+```bash
+# 매번 -f를 쓰기 번거로우면 (서버의 셸에서)
+export COMPOSE_FILE=docker-compose.prod.yml
+```
+
 **🔍 원리**
+- **개발용과 운영용 compose를 나눈 이유**: 개발용은 MySQL만 3307로 열어서 IDE의 Spring과 `pnpm dev`가 붙는다. 운영용은 세 컨테이너를 묶고 DB 포트를 열지 않는다. 한 파일에 섞으면 로컬 개발 흐름이 깨진다. `-f docker-compose.prod.yml`로 어느 쪽인지 **명시**한다.
+- 볼륨 이름이 다르므로(`mysql-data` vs `db-data`) 로컬에서 운영 구성을 띄워도 개발 DB 데이터와 섞이지 않는다. 단, 둘 다 켜면 개발용이 3307, 운영용 frontend가 80을 쓰므로 포트 충돌은 없다.
 - **컨테이너 간 접속은 서비스 이름으로**: compose는 서비스끼리 같은 가상 네트워크에 두고, `mysql`, `backend`라는 이름을 DNS로 풀어 준다. 컨테이너 안의 `localhost`는 **자기 자신**이라서 DB 주소로 쓰면 안 된다.
 - **포트는 Nginx(80)만 연다**: DB(3306)·백엔드(8080)는 외부에 노출하지 않는다. 외부에서 들어올 수 있는 문은 Nginx 하나뿐이다.
 - **볼륨**: 컨테이너는 지우면 안의 파일이 사라진다. `db-data`, `uploads`는 컨테이너 밖(Docker가 관리하는 저장소)에 둬서 **컨테이너를 새로 만들어도 데이터가 남는다**.
@@ -375,9 +389,9 @@ COOKIE_SECURE=false
 
 **✔ 확인**
 - [ ] `cp .env.example .env` 후 값 채우기
-- [ ] `docker compose up -d --build` → `docker compose ps`에서 세 개 모두 `healthy`/`running`
-- [ ] `http://localhost` → 게시판 화면
-- [ ] `docker compose exec mysql mysql -u board -p board -e "SHOW TABLES;"` → 6개 테이블
+- [ ] `docker compose -f docker-compose.prod.yml up -d --build` → `docker compose -f docker-compose.prod.yml ps`에서 세 개 모두 `healthy`/`running`
+- [ ] `http://localhost` → 홈 화면, `http://localhost/posts?page=2` 새로고침 → 게시판 2페이지
+- [ ] `docker compose -f docker-compose.prod.yml exec mysql mysql -u fullstack -p fullstack -e "SHOW TABLES;"` → 6개 테이블
 
 ---
 
@@ -401,6 +415,10 @@ fail() { echo "❌ $1"; exit 1; }
 curl -fsS "$BASE/actuator/health" | grep -q '"UP"' && pass "health UP" || fail "health"
 
 curl -fsS -o /dev/null -w '%{http_code}' "$BASE/posts/1" | grep -q 200 && pass "SPA 새로고침(/posts/1)" || fail "SPA try_files"
+curl -fsS -o /dev/null -w '%{http_code}' "$BASE/mypage?tab=posts" | grep -q 200 && pass "SPA 쿼리스트링(/mypage?tab=posts)" || fail "SPA try_files"
+
+curl -fsS "$BASE/api/auth/check-login-id?loginId=$ID" | grep -q '"available":true' \
+  && pass "아이디 중복 확인" || fail "아이디 중복 확인"
 
 curl -fsS -X POST "$BASE/api/auth/signup" -H 'Content-Type: application/json' \
   -d "{\"loginId\":\"$ID\",\"password\":\"$PW\",\"nickname\":\"스모크\",\"email\":\"$ID@smoke.test\"}" > /dev/null \
@@ -413,17 +431,20 @@ TOKEN=$(curl -fsS -c "$JAR" -X POST "$BASE/api/auth/login" -H 'Content-Type: app
 curl -fsS -b "$JAR" -c "$JAR" -X POST "$BASE/api/auth/reissue" | grep -q accessToken \
   && pass "재발급(새로고침 로그인 유지)" || fail "재발급"
 
-POST_ID=$(curl -fsS -X POST "$BASE/api/posts" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"title":"스모크 테스트","content":"배포 확인"}' | sed -E 's/.*"data":([0-9]+).*/\1/')
-[ -n "$POST_ID" ] && pass "글쓰기 #$POST_ID" || fail "글쓰기"
-
-curl -fsS -X POST "$BASE/api/posts/$POST_ID/comments" -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' -d '{"content":"댓글"}' > /dev/null && pass "댓글" || fail "댓글"
-
 printf '\xff\xd8\xff' > /tmp/smoke.jpg   # 최소 jpg 헤더 (썸네일은 실패해도 업로드는 성공)
 FILE_ID=$(curl -fsS -X POST "$BASE/api/files" -H "Authorization: Bearer $TOKEN" \
   -F "files=@/tmp/smoke.jpg;type=image/jpeg;filename=스모크.jpg" | sed -E 's/.*"id":([0-9]+).*/\1/')
 [ -n "$FILE_ID" ] && pass "파일 업로드 #$FILE_ID" || fail "업로드"
+
+# 글쓰기 화면과 같은 흐름: 업로드한 파일 id를 fileIds로 첨부
+POST_ID=$(curl -fsS -X POST "$BASE/api/posts" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"title\":\"스모크 테스트\",\"content\":\"배포 확인\",\"fileIds\":[$FILE_ID]}" | sed -E 's/.*"data":([0-9]+).*/\1/')
+[ -n "$POST_ID" ] && pass "글쓰기(첨부 포함) #$POST_ID" || fail "글쓰기"
+
+curl -fsS "$BASE/api/posts/$POST_ID" | grep -q "\"id\":$FILE_ID" && pass "상세 첨부 목록" || fail "상세 첨부"
+
+curl -fsS -X POST "$BASE/api/posts/$POST_ID/comments" -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"content":"댓글"}' > /dev/null && pass "댓글" || fail "댓글"
 
 curl -fsS -D - -o /dev/null "$BASE/api/files/$FILE_ID/download" -H "Authorization: Bearer $TOKEN" \
   | grep -qi "filename\*=UTF-8" && pass "한글 파일명 다운로드" || fail "다운로드"
@@ -471,7 +492,7 @@ cd ~/app && cp .env.example .env && nano .env   # 운영용 새 비밀값으로 
 **🔍 원리**
 - **보안 그룹이 1차 방화벽**이다. compose에서 포트를 안 열어도, 서버 자체의 불필요한 포트는 여기서 다시 막는다. SSH(22)는 **내 IP만** 허용해야 무차별 대입 공격을 줄인다.
 - 운영 `.env`는 **로컬과 다른 값**으로 새로 만든다. 로컬 `JWT_SECRET`이 새어 나가도 운영이 안전하다.
-- 서버에서 Gradle·npm 빌드까지 하면 메모리가 부족할 수 있다(스왑이 그래서 필요). 여유가 생기면 "내 PC에서 이미지 빌드 → 레지스트리(Docker Hub/GHCR)에 push → 서버는 pull만"으로 바꾼다(8주차 선택 과제).
+- 서버에서 Gradle·pnpm 빌드까지 하면 메모리가 부족할 수 있다(스왑이 그래서 필요). 여유가 생기면 "내 PC에서 이미지 빌드 → 레지스트리(Docker Hub/GHCR)에 push → 서버는 pull만"으로 바꾼다(8주차 선택 과제).
 
 **✔ 확인**: `docker run --rm hello-world` 성공.
 
@@ -486,6 +507,7 @@ cd ~/app && cp .env.example .env && nano .env   # 운영용 새 비밀값으로 
 # 서버에서 실행: ./scripts/deploy.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+export COMPOSE_FILE=docker-compose.prod.yml   # 이하 docker compose 명령은 운영 구성을 쓴다
 
 echo "▶ 최신 코드"
 git pull --ff-only
@@ -530,6 +552,7 @@ echo "▶ 스모크 테스트"
 ./scripts/smoke.sh http://<서버IP>
 
 # 서버에서: 재시작해도 데이터가 남는지
+export COMPOSE_FILE=docker-compose.prod.yml
 docker compose restart
 docker compose down && docker compose up -d        # 컨테이너 삭제 후 재생성 (볼륨은 유지)
 ./scripts/smoke.sh http://localhost
@@ -540,8 +563,8 @@ docker compose down && docker compose up -d        # 컨테이너 삭제 후 재
 
 **🔍 원리**
 - `restart`는 같은 컨테이너를 다시 켜고, `down → up`은 컨테이너를 **지우고 새로 만든다**. 두 경우 모두 볼륨의 데이터가 남아야 한다.
-- 브라우저 수동 확인: 로그인 → **새로고침 후 로그인 유지**(쿠키 + Nginx 같은 출처) → 상세 페이지 새로고침(try_files) → 이미지 업로드(client_max_body_size) → 한글 파일 다운로드.
-- 백업 한 줄(선택): `docker compose exec mysql mysqldump -u root -p board > backup_$(date +%F).sql`. 볼륨은 서버 디스크가 망가지면 같이 사라진다.
+- 브라우저 수동 확인: 회원가입(아이디 중복 확인) → 로그인 → **새로고침 후 로그인 유지**(쿠키 + Nginx 같은 출처) → 글쓰기에서 이미지 첨부(client_max_body_size) → 상세 페이지 새로고침(try_files) → 첨부 한글 파일 다운로드 → 마이페이지 `?tab=posts` 새로고침 → 프로필 이미지 변경.
+- 백업 한 줄(선택): `docker compose exec mysql mysqldump -u root -p fullstack > backup_$(date +%F).sql`. 볼륨은 서버 디스크가 망가지면 같이 사라진다.
 
 **✔ 확인**: 외부 주소 스모크 통과 + 재생성 후 데이터 유지.
 
@@ -552,6 +575,7 @@ docker compose down && docker compose up -d        # 컨테이너 삭제 후 재
 ```bash
 # 1) 도메인 DNS A 레코드 → 서버 IP
 # 2) 서버에서 certbot으로 인증서 발급 (80 포트가 잠시 필요 → frontend 잠깐 중지)
+export COMPOSE_FILE=docker-compose.prod.yml
 docker compose stop frontend
 sudo apt-get install -y certbot
 sudo certbot certonly --standalone -d board.example.com
@@ -578,7 +602,7 @@ server {
 ```
 
 ```yaml
-# docker-compose.yml frontend에 추가
+# docker-compose.prod.yml frontend에 추가
     ports:
       - "80:80"
       - "443:443"
@@ -603,6 +627,10 @@ COOKIE_SECURE=true
 - **새로고침하면 404** → `try_files $uri $uri/ /index.html`(4번).
 - **이미지 업로드 413** → `client_max_body_size`(4번).
 - **502 Bad Gateway** → 백엔드가 아직 기동 중이거나 죽음. `proxy_pass` 호스트명이 compose 서비스 이름(`backend`)인가?
+- **`docker compose ps`에 mysql 하나만 보임** → `-f docker-compose.prod.yml`(또는 `COMPOSE_FILE`) 없이 실행해서 개발용 compose를 띄웠다(6번).
+- **프런트 이미지 빌드가 `tsc` 에러로 실패** → 로컬에서 `pnpm build`가 통과하는지 먼저 확인. 이미지 빌드는 타입 검사를 건너뛰지 않는다(5번).
+- **운영에서 API가 `localhost:8080`으로 나감** → `.env*`가 이미지에 들어가 `VITE_API_BASE_URL`이 박혔다. `.dockerignore`에 `.env`, `.env.*`(5번).
+- **업로드가 400 "Required part 'files'"(운영만)** → 로컬은 되는데 운영만 안 되면 Nginx 413을 먼저 의심하고, 둘 다 안 되면 5주차 13번 `Content-Type` 덮어쓰기.
 - **API가 404인데 로컬에선 됨** → `proxy_pass` 끝에 `/`를 붙여서 `/api`가 잘렸나(4번)?
 - **새로고침하면 로그아웃(운영만)** → HTTP인데 `COOKIE_SECURE=true`인가(11번)?
 - **한글 깨짐** → MySQL `command`의 `utf8mb4`(6번), JDBC URL `characterEncoding=UTF-8`(1번).
@@ -617,7 +645,7 @@ COOKIE_SECURE=true
 4. `try_files`가 없으면 어떤 상황에서 404가 나나?
 5. `initdb.d`의 SQL은 언제 실행되고, 언제 실행되지 않나?
 6. `depends_on`만으로는 부족하고 `service_healthy`가 필요한 이유는?
-7. `VITE_API_URL`을 절대 주소가 아니라 `/api`로 둔 덕분에 배포에서 무엇이 편해졌나?
+7. `VITE_API_BASE_URL`을 절대 주소가 아니라 `/api`(기본값)로 둔 덕분에 배포에서 무엇이 편해졌나?
 8. `docker compose down`과 `down -v`의 차이는?
 
 ## 🚀 여유가 있다면

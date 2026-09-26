@@ -4,7 +4,8 @@
 > 스키마 기준: `docs/01_ERD.md`의 `users`, `refresh_tokens`. `ddl-auto: validate`는 그대로.
 > 각 단계는 **🎯 목표 → 🤔 왜 지금 → 📄 파일 → ⌨️ 코드 → 🔍 원리 → ✔ 확인** 순서.
 
-> ⚠️ **Spring Security 의존성을 추가하는 순간 모든 API가 401(또는 로그인 페이지 HTML)로 막힌다.** 10번 `SecurityConfig`까지 한 번에 가는 게 부담이면, 1번에서 의존성을 넣고 바로 10번의 `permitAll` 부분만 먼저 만들어 두자.
+> 📌 **현재 상태**: `spring-boot-starter-security`는 이미 들어 있고, `config/SecurityConfig`가 **모든 요청을 `permitAll`**하는 임시 상태다. 이번 주에 이 파일을 9번 내용으로 **교체**한다. 교체 전까지는 2주차 화면이 그대로 동작한다.
+> 📌 **프런트 화면 기준**: 회원가입 화면(`features/auth/SignupForm.tsx`)에는 **[중복 확인] 버튼**이 있다 → 10번에 `GET /api/auth/check-login-id`를 함께 만든다. 이메일 입력칸은 아직 없지만 ERD상 `email`이 NOT NULL·UNIQUE라 API는 이메일을 받고, 4주차에 입력칸을 추가한다.
 
 ---
 
@@ -46,19 +47,19 @@ React ──Authorization: Bearer <access>──▶ JwtAuthenticationFilter (서
 | 7 | 인증 사용자 · 필터 | `LoginUser`, `JwtAuthenticationFilter` | 컴파일 OK |
 | 8 | 401·403 JSON 응답 | `JsonAuthenticationEntryPoint`, `JsonAccessDeniedHandler` | 컴파일 OK |
 | 9 | Security 설정 | `SecurityConfig` | 목록 조회 200, 글쓰기 401 |
-| 10 | 회원가입 · 로그인 · 재발급 · 로그아웃 | `auth/dto/*`, `AuthService`, `AuthController` | Swagger로 전체 흐름 |
+| 10 | 회원가입 · 아이디 중복 확인 · 로그인 · 재발급 · 로그아웃 | `auth/dto/*`, `AuthService`, `AuthController` | Swagger로 전체 흐름 |
 | 11 | 게시글 작성자 연결 · 권한 | `PostController`, `PostService` | 남의 글 수정 403 |
-| 12 | Swagger 인증 버튼 | `SwaggerConfig` | Authorize로 토큰 입력 |
+| 12 | Swagger 인증 버튼 | `OpenApiConfig` | Authorize로 토큰 입력 |
 | 13 | 테스트 | `JwtProviderTest`, `AuthIntegrationTest` | 전부 통과 |
 
 ## 📁 추가·변경 파일
 
 ```text
-src/main/java/com/example/board
+backend/src/main/java/jinavely/github/io/fullstack
+ ├─ config
+ │   ├─ SecurityConfig.java                  (9 교체)
+ │   └─ OpenApiConfig.java                   (12 수정)
  ├─ global
- │   ├─ config
- │   │   ├─ SecurityConfig.java              (9)
- │   │   └─ SwaggerConfig.java               (12)
  │   ├─ error/ErrorCode.java                 (2 수정)
  │   └─ security
  │       ├─ JwtProvider.java                 (5)
@@ -68,31 +69,33 @@ src/main/java/com/example/board
  │       ├─ JsonAuthenticationEntryPoint.java(8)
  │       └─ JsonAccessDeniedHandler.java     (8)
  ├─ user
- │   ├─ User.java · Role.java · UserStatus.java (3)
- │   └─ UserRepository.java                  (4 수정)
+ │   ├─ entity/User.java · Role.java · UserStatus.java (3 수정)
+ │   └─ repository/UserRepository.java       (4 수정)
  ├─ auth
- │   ├─ RefreshToken.java                    (6)
- │   ├─ RefreshTokenRepository.java          (6)
- │   ├─ AuthService.java · AuthController.java (10)
- │   └─ dto/SignupRequest · LoginRequest · TokenResponse · UserSummary · AuthResult (10)
+ │   ├─ entity/RefreshToken.java             (6)
+ │   ├─ repository/RefreshTokenRepository.java (6)
+ │   ├─ service/AuthService.java             (10)
+ │   ├─ controller/AuthController.java       (10)
+ │   └─ dto/SignupRequest · LoginRequest · TokenResponse · UserSummary · AuthResult · LoginIdCheckResponse (10)
  └─ post
-     ├─ PostService.java · PostController.java (11 수정)
+     ├─ service/PostService.java · controller/PostController.java (11 수정)
 ```
+
+> 1주차처럼 도메인 패키지 안을 `controller / service / dto / entity / repository`로 나눈다.
 
 ---
 
 ## 1 · 의존성 · 설정값
 
-**🎯 목표**: Spring Security와 jjwt 0.12를 추가하고, JWT 비밀키·만료 시간을 설정 파일로 뺀다.
+**🎯 목표**: jjwt 0.12를 추가하고, JWT 비밀키·만료 시간을 설정 파일로 뺀다. (Spring Security는 이미 있다)
 
 **🤔 왜 지금**: 이후 모든 클래스가 이 라이브러리와 설정값을 쓴다.
 
-**📄 파일**: `build.gradle`, `application.yml`, `.gitignore`
+**📄 파일**: `backend/build.gradle`, `application.yml`, `backend/.env`(Git 제외)
 
 ```groovy
 dependencies {
-    // ...1주차 의존성 유지
-    implementation 'org.springframework.boot:spring-boot-starter-security'
+    // ...기존 의존성 유지 (spring-boot-starter-security 포함)
     implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
@@ -124,7 +127,7 @@ openssl rand -base64 32
 - 비밀키를 yml에 직접 쓰면 Git에 올라간다. `${JWT_SECRET}`처럼 **환경변수로 주입**하는 게 실무 기본이다. 6주차 `.env`와 연결된다.
 - AI에게 질문할 때 이 키 값은 절대 붙여넣지 않는다.
 
-**✔ 확인**: Gradle 새로고침 성공. (이 시점에 앱을 켜면 모든 API가 막히는 게 정상 → 9번에서 해결)
+**✔ 확인**: Gradle 새로고침 성공. (`SecurityConfig`가 아직 `permitAll`이라 앱은 그대로 동작한다)
 
 ---
 
@@ -179,11 +182,11 @@ public enum ErrorCode {
 
 ## 3 · User 엔티티 완성 · enum
 
-**🎯 목표**: 1주차 최소 `User`에 ERD `users`의 나머지 컬럼을 모두 매핑한다.
+**🎯 목표**: 1주차 최소 `User`(`id`, `loginId`, `nickname`만 있음)에 ERD `users`의 나머지 컬럼을 모두 매핑한다.
 
 **🤔 왜 지금**: 회원가입은 INSERT다. ERD에서 NOT NULL인 컬럼(`password`, `email`, `role`, `status`)이 엔티티에 없으면 저장이 실패한다.
 
-**📄 파일**: `user/Role.java`, `user/UserStatus.java`, `user/User.java`
+**📄 파일**: `user/entity/Role.java`, `user/entity/UserStatus.java`, `user/entity/User.java`
 
 ```java
 public enum Role { USER, ADMIN }
@@ -264,7 +267,7 @@ public class User extends BaseTimeEntity {
 
 **🎯 목표**: 로그인·중복 체크에 필요한 조회 메서드를 추가한다.
 
-**📄 파일**: `user/UserRepository.java`
+**📄 파일**: `user/repository/UserRepository.java`
 
 ```java
 public interface UserRepository extends JpaRepository<User, Long> {
@@ -352,7 +355,7 @@ public class JwtProvider {
 
 **🤔 왜 지금**: 로그인(10번)이 Access와 함께 Refresh를 발급·저장한다.
 
-**📄 파일**: `global/security/TokenHasher.java`, `auth/RefreshToken.java`, `auth/RefreshTokenRepository.java`
+**📄 파일**: `global/security/TokenHasher.java`, `auth/entity/RefreshToken.java`, `auth/repository/RefreshTokenRepository.java`
 
 ```java
 public final class TokenHasher {
@@ -591,9 +594,9 @@ public class JsonAccessDeniedHandler implements AccessDeniedHandler {
 
 **🎯 목표**: URL별로 누가 들어올 수 있는지 정하고, 7·8번을 체인에 연결한다.
 
-**🤔 왜 지금**: 이게 있어야 앱이 다시 정상적으로 응답한다. 2주차 화면(목록·상세)도 다시 동작한다.
+**🤔 왜 지금**: 지금의 `permitAll` 임시 설정을 진짜 규칙으로 바꾼다. 교체해도 2주차 화면의 목록·상세(GET)는 그대로 동작한다.
 
-**📄 파일**: `global/config/SecurityConfig.java`
+**📄 파일**: `config/SecurityConfig.java` (기존 임시 파일 전체 교체)
 
 ```java
 @Configuration
@@ -647,17 +650,18 @@ public class SecurityConfig {
 **✔ 확인**
 - [ ] `GET /api/posts` → 200 (2주차 화면 정상)
 - [ ] `POST /api/posts` (토큰 없음) → **401**, `{"success":false,"error":{"code":"C401",...}}`
+- [ ] 2주차 글쓰기 화면에서 등록 → 폼 아래에 "로그인이 필요합니다." (2주차 `PostForm`의 `root` 에러가 그대로 보여준다. 4주차에 토큰을 붙이면 해결)
 - [ ] Swagger 화면 열림
 
 ---
 
 ## 10 · 회원가입 · 로그인 · 재발급 · 로그아웃
 
-**🎯 목표**: 인증 API 4개를 만든다. Access는 응답 본문으로, Refresh는 httpOnly 쿠키로 준다.
+**🎯 목표**: 인증 API 5개를 만든다(가입 · 아이디 중복 확인 · 로그인 · 재발급 · 로그아웃). Access는 응답 본문으로, Refresh는 httpOnly 쿠키로 준다.
 
 **🤔 왜 지금**: 모든 부품(5~9번)이 준비됐다. 이제 조립한다.
 
-**📄 파일**: `auth/dto/*.java`, `auth/AuthService.java`, `auth/AuthController.java`
+**📄 파일**: `auth/dto/*.java`, `auth/service/AuthService.java`, `auth/controller/AuthController.java`
 
 ```java
 // auth/dto/SignupRequest.java — ERD 길이와 맞춤
@@ -703,6 +707,10 @@ public record TokenResponse(String accessToken, long expiresIn, UserSummary user
 // auth/dto/AuthResult.java — Service → Controller 내부 전달용
 public record AuthResult(String accessToken, String refreshToken, UserSummary user) {
 }
+
+// auth/dto/LoginIdCheckResponse.java — 회원가입 화면 [중복 확인] 버튼용
+public record LoginIdCheckResponse(boolean available) {
+}
 ```
 
 ```java
@@ -739,6 +747,10 @@ public class AuthService {
             // 동시에 같은 아이디로 가입한 경우 → UNIQUE 제약이 최종 방어
             throw new BusinessException(ErrorCode.DUPLICATE_LOGIN_ID);
         }
+    }
+
+    public LoginIdCheckResponse checkLoginId(String loginId) {
+        return new LoginIdCheckResponse(!userRepository.existsByLoginId(loginId));
     }
 
     @Transactional
@@ -807,6 +819,7 @@ public class AuthService {
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
+@Validated   // @RequestParam에 붙인 @Pattern을 검사하려면 필요
 public class AuthController {
 
     private static final String REFRESH_COOKIE = "refresh_token";
@@ -823,6 +836,14 @@ public class AuthController {
     @PostMapping("/signup")
     public ResponseEntity<ApiResponse<Long>> signup(@Valid @RequestBody SignupRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(authService.signup(req)));
+    }
+
+    @GetMapping("/check-login-id")
+    public ApiResponse<LoginIdCheckResponse> checkLoginId(
+            @RequestParam
+            @Pattern(regexp = "^[a-z0-9]{4,20}$", message = "아이디는 영문 소문자·숫자 4~20자입니다.")
+            String loginId) {
+        return ApiResponse.ok(authService.checkLoginId(loginId));
     }
 
     @PostMapping("/login")
@@ -880,8 +901,13 @@ public class AuthController {
 - 로그인 실패 처리: 아이디가 없거나 비밀번호가 틀려도 **같은 `LOGIN_FAILED`**. 탈퇴 계정도 같은 메시지(존재 여부 노출 방지). 정지 계정은 비밀번호가 맞은 뒤에만 "정지"를 알려준다.
 - `saveAndFlush`: 바로 INSERT를 실행해서 UNIQUE 위반을 **이 try 안에서** 잡는다. `save`만 쓰면 INSERT가 트랜잭션 끝에 나가서 catch를 벗어난다.
 - 응답에 `user`를 같이 주는 이유: 프런트가 앱을 새로 열 때 `reissue` 한 번으로 **토큰과 사용자 정보를 동시에 복원**한다(4주차).
+- **아이디 중복 확인 API**: 회원가입 화면의 [중복 확인] 버튼용이다. 결과는 에러가 아니라 `{ available: true/false }`로 준다 — "이미 있음"은 실패가 아니라 정상적인 조회 결과이기 때문이다. 중복 확인을 통과해도 가입 순간에 다시 검사한다(그 사이 누가 가입할 수 있음). 중복 확인은 **편의**, 가입 시 검사와 UNIQUE 제약이 **보장**이다.
+- `@RequestParam`의 `@Pattern`은 컨트롤러 클래스에 `@Validated`를 붙여야 동작하고, 실패하면 `MethodArgumentNotValidException`이 아니라 **`HandlerMethodValidationException`**(Spring 6.1+)이 난다. `GlobalExceptionHandler`에 이 예외도 `INVALID_INPUT`(400)으로 바꾸는 핸들러를 추가하자. 이 API는 계정 존재 여부를 알려주므로, 운영에서는 IP당 호출 횟수 제한을 거는 것이 좋다(선택).
+- **이메일**: 프런트 회원가입 화면에는 아직 이메일 칸이 없다. ERD가 `email NOT NULL UNIQUE`이므로 API는 이메일을 필수로 받고, 4주차에 화면에 칸을 추가한다.
+- 비밀번호 규칙(영문+숫자 8~20자)은 프런트 입력창 placeholder("영문·숫자·특수문자 조합")와 다르다. **규칙은 백엔드 기준**이고, 4주차에 placeholder를 규칙에 맞춰 고친다.
 
 **✔ 확인** (Swagger 또는 Postman — Postman은 쿠키가 자동 저장되어 편하다)
+- [ ] `GET /api/auth/check-login-id?loginId=tester1` → `{"available":true}` / 가입 후 → `false` / `loginId=AB` → 400
 - [ ] 회원가입 → 201, 같은 아이디 다시 → **409 U002**, 비밀번호 `1234` → 400 + `fields.password`
 - [ ] MySQL `SELECT login_id, password, role, status FROM users;` → 비밀번호가 `$2a$10$...` 해시, role `USER`, status `ACTIVE`
 - [ ] 로그인 → 200, 본문에 `accessToken`, 응답 헤더에 `Set-Cookie: refresh_token=...; HttpOnly; SameSite=Strict`
@@ -898,7 +924,7 @@ public class AuthController {
 
 **🤔 왜 지금**: 인증이 완성돼야 "누가 요청했는지"를 알 수 있다.
 
-**📄 파일**: `post/PostController.java`, `post/PostService.java` (수정)
+**📄 파일**: `post/controller/PostController.java`, `post/service/PostService.java` (수정)
 
 ```java
 // PostController — TEMP_USER_ID 삭제, @AuthenticationPrincipal 추가
@@ -967,17 +993,20 @@ private void checkOwner(Post post, LoginUser loginUser) {
 
 **🎯 목표**: Swagger 화면에서 토큰을 한 번 입력하면 모든 요청에 `Authorization` 헤더가 붙게 한다.
 
-**📄 파일**: `global/config/SwaggerConfig.java`
+**📄 파일**: `config/OpenApiConfig.java` (기존 파일에 보안 스키마 추가)
 
 ```java
 @Configuration
-public class SwaggerConfig {
+public class OpenApiConfig {
 
     @Bean
     public OpenAPI openAPI() {
         String scheme = "bearerAuth";
         return new OpenAPI()
-                .info(new Info().title("Board API").version("v1"))
+                .info(new Info()
+                        .title("Fullstack API")
+                        .description("simple-fullstack 백엔드 API 문서")
+                        .version("v1"))
                 .addSecurityItem(new SecurityRequirement().addList(scheme))
                 .components(new Components().addSecuritySchemes(scheme,
                         new SecurityScheme()
@@ -1047,6 +1076,8 @@ class JwtProviderTest {
 @ActiveProfiles("test")
 class AuthIntegrationTest {
 
+    // 컨테이너를 직접 선언해도 되고, 이미 있는 TestcontainersConfiguration을
+    // @Import(TestcontainersConfiguration.class)로 재사용해도 된다(그쪽에 withInitScript 추가).
     @Container
     @ServiceConnection
     static MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.4")
@@ -1144,6 +1175,7 @@ spring:
 - **필터가 두 번 실행됨** → 필터 클래스에 `@Component`를 붙였나(7번)?
 - **`@AuthenticationPrincipal`이 null** → `permitAll` URL에 토큰 없이 호출했거나, 필터에서 principal로 `LoginUser`를 넣었나?
 - **재발급이 항상 401** → 쿠키 `path=/api/auth`인데 다른 경로로 호출했나? 브라우저라면 `withCredentials`(4주차).
+- **`check-login-id?loginId=AB`가 400이 아니라 200 또는 500** → 컨트롤러에 `@Validated`가 있나? `HandlerMethodValidationException` 핸들러를 추가했나(10번)?
 - **403인데 JSON이 아님** → `AccessDeniedHandler` 등록(8·9번).
 - **한글 에러 메시지 깨짐** → EntryPoint의 `setCharacterEncoding`(8번).
 
