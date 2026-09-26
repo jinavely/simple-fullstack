@@ -1,0 +1,32 @@
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+
+export function MyCommentTable() {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>댓글</TableHead>
+          <TableHead className="w-40">게시글</TableHead>
+          <TableHead className="w-28 text-center">작성일</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        <TableRow>
+          <TableCell
+            colSpan={3}
+            className="h-32 text-center text-muted-foreground"
+          >
+            작성한 댓글이 없습니다.
+          </TableCell>
+        </TableRow>
+      </TableBody>
+    </Table>
+  )
+}

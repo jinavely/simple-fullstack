@@ -49,7 +49,7 @@ pnpm lint                    # eslint .
 pnpm format                  # prettier --write .
 pnpm test                    # vitest run (single run)
 pnpm test:watch              # vitest watch mode
-pnpm test -- src/features/example/ExampleList.test.tsx   # run a single test file
+pnpm test -- src/pages/HomePage.test.tsx   # run a single test file
 pnpm test:e2e                # playwright test (boots the dev server itself)
 ```
 
@@ -73,15 +73,15 @@ Test setup uses `TestcontainersConfiguration` (`@ServiceConnection` MySQL contai
 
 ### Frontend
 Feature-based structure under `frontend/src/`:
-- `app/router.tsx` — route table (`react-router` `createBrowserRouter`)
+- `routes/router.tsx` — route table (`react-router` `createBrowserRouter`); `routes/paths.ts` — shared path constants (`ROUTES`) and builders for dynamic paths (`toPostDetail`, `toPostEdit`). Never hardcode path strings in `Link`/`navigate` — use these.
 - `pages/` — route-level components
 - `components/layout/`, `components/ui/` — shared layout and shadcn/ui-generated primitives
 - `features/<feature>/` — colocated per-feature code, each typically containing `api.ts` (axios calls), `schema.ts` (zod schemas), `queries.ts` (TanStack Query hooks), and the component + its test
 - `lib/` — cross-cutting singletons: `api-client.ts` (axios instance, base URL from `VITE_API_BASE_URL`), `queryClient.ts`, `utils.ts`
-- `store/` — Zustand stores
+- `store/` — Zustand stores (currently empty)
 - `test/setup.ts` — Vitest/Testing Library setup
 
-Data flow convention (see `features/example/`): `api.ts` calls the backend via the shared `apiClient` and parses the response through a zod schema from `schema.ts`; `queries.ts` wraps that call in a `useQuery`/`useMutation` hook; components consume only the hook, never `api.ts` or axios directly.
+Data flow convention: `api.ts` calls the backend via the shared `apiClient` and parses the response through a zod schema from `schema.ts`; `queries.ts` wraps that call in a `useQuery`/`useMutation` hook; components consume only the hook, never `api.ts` or axios directly.
 
 Path alias `@` → `frontend/src` (configured in both `vite.config.ts` and `tsconfig.app.json`).
 
