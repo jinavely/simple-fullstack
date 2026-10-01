@@ -1,3 +1,4 @@
+// features/post/PostDeleteDialog.tsx
 import { Trash2Icon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,13 +13,18 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 
-export function PostDeleteDialog() {
+type PostDeleteDialogProps = {
+  onConfirm: () => void
+  isPending: boolean
+}
+
+export function PostDeleteDialog({ onConfirm, isPending }: PostDeleteDialogProps) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="destructive">
+        <Button variant="destructive" disabled={isPending}>
           <Trash2Icon />
-          삭제
+          {isPending ? '삭제 중…' : '삭제'}
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
@@ -30,7 +36,9 @@ export function PostDeleteDialog() {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>취소</AlertDialogCancel>
-          <AlertDialogAction variant="destructive">삭제</AlertDialogAction>
+          <AlertDialogAction variant="destructive" onClick={onConfirm}>
+            삭제
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

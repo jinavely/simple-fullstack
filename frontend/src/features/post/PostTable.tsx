@@ -1,3 +1,5 @@
+// features/post/PostTable.tsx
+import { Link } from 'react-router'
 import {
   Table,
   TableBody,
@@ -6,10 +8,19 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { formatDate } from '@/lib/format'
+import { toPostDetail } from '@/routes/paths'
+import type { Post } from './schema'
 
-export function PostTable() {
+type PostTableProps = {
+  posts: Post[]
+  emptyMessage: string
+  busy?: boolean
+}
+
+export function PostTable({ posts, emptyMessage, busy = false }: PostTableProps) {
   return (
-    <Table>
+    <Table aria-busy={busy}>
       <TableHeader>
         <TableRow>
           <TableHead className="w-16 text-center">번호</TableHead>
@@ -20,14 +31,36 @@ export function PostTable() {
         </TableRow>
       </TableHeader>
       <TableBody>
-        <TableRow>
-          <TableCell
-            colSpan={5}
-            className="h-32 text-center text-muted-foreground"
-          >
-            게시글이 없습니다.
-          </TableCell>
-        </TableRow>
+        {posts.length === 0 ? (
+          <TableRow>
+            <TableCell
+              colSpan={5}
+              className="h-32 text-center text-muted-foreground"
+            >
+              {emptyMessage}
+            </TableCell>
+          </TableRow>
+        ) : (
+          posts.map((post) => (
+            <TableRow key={post.id}>
+              <TableCell className="text-center">{post.id}</TableCell>
+              <TableCell className="max-w-0 truncate">
+                <Link to={toPostDetail(post.id)} className="hover:underline">
+                  {post.title}
+                </Link>
+              </TableCell>
+              <TableCell className="text-center">
+                {post.writerNickname}
+              </TableCell>
+              <TableCell className="text-center">
+                {formatDate(post.createdAt)}
+              </TableCell>
+              <TableCell className="text-center">
+                {post.viewCount.toLocaleString()}
+              </TableCell>
+            </TableRow>
+          ))
+        )}
       </TableBody>
     </Table>
   )
